@@ -2,7 +2,10 @@
 import { mockDataSciencePipelineApplicationK8sResource } from '~/__mocks__/mockDataSciencePipelinesApplicationK8sResource';
 import { mockDscStatus } from '~/__mocks__/mockDscStatus';
 import { mockK8sResourceList } from '~/__mocks__/mockK8sResourceList';
-import { buildMockPipelineVersionV2 } from '~/__mocks__/mockPipelineVersionsProxy';
+import {
+  buildMockPipelineVersionV2,
+  buildMockPipelineVersionsV2,
+} from '~/__mocks__/mockPipelineVersionsProxy';
 import { mockProjectK8sResource } from '~/__mocks__/mockProjectK8sResource';
 import { mockRouteK8sResource } from '~/__mocks__/mockRouteK8sResource';
 import { mockSecretK8sResource } from '~/__mocks__/mockSecretK8sResource';
@@ -12,6 +15,7 @@ import {
   pipelineDetails,
   pipelineRunJobDetails,
   pipelineRunDetails,
+  pipelineVersionImportModal,
 } from '~/__tests__/cypress/cypress/pages/pipelines';
 import { buildMockRunKF } from '~/__mocks__/mockRunKF';
 import { mockPipelinePodK8sResource } from '~/__mocks__/mockPipelinePodK8sResource';
@@ -24,6 +28,8 @@ import {
   RouteModel,
   SecretModel,
 } from '~/__tests__/cypress/cypress/utils/models';
+import { mock200Status } from '~/__mocks__/mockK8sStatus';
+import { deleteModal } from '~/__tests__/cypress/cypress/pages/components/DeleteModal';
 
 const projectId = 'test-project';
 const mockPipeline = buildMockPipelineV2({
@@ -34,6 +40,11 @@ const mockVersion = buildMockPipelineVersionV2({
   pipeline_id: mockPipeline.pipeline_id,
   pipeline_version_id: 'test-version-id',
   display_name: 'test-version-name',
+});
+const mockVersion2 = buildMockPipelineVersionV2({
+  pipeline_id: mockPipeline.pipeline_id,
+  pipeline_version_id: 'test-version-id-2',
+  display_name: 'test-version-2',
 });
 const mockRun = buildMockRunKF({
   display_name: 'test-pipeline-run',
@@ -109,6 +120,13 @@ const initIntercepts = () => {
     },
     mockPipeline,
   );
+  cy.intercept(
+    {
+      method: 'GET',
+      pathname: `/api/service/pipelines/${projectId}/dspa/apis/v2beta1/pipelines/${mockPipeline.pipeline_id}/versions`,
+    },
+    buildMockPipelineVersionsV2([mockVersion, mockVersion2]),
+  );
 
   cy.intercept(
     {
@@ -181,16 +199,15 @@ const initIntercepts = () => {
 
 describe('Pipeline topology', () => {
   describe('Pipeline details', () => {
+    beforeEach(() => {
+      initIntercepts();
+      pipelineDetails.visit(projectId, mockVersion.pipeline_id, mockVersion.pipeline_version_id);
+      // https://issues.redhat.com/browse/RHOAIENG-4562
+      // Bypass intermittent Cypress error:
+      // Failed to execute 'importScripts' on 'WorkerGlobalScope': The script at 'https://cdn.jsdelivr.net/npm/monaco-editor@0.43.0/min/vs/base/worker/workerMain.js' failed to load.
+      Cypress.on('uncaught:exception', () => false);
+    });
     describe('Navigation', () => {
-      beforeEach(() => {
-        initIntercepts();
-        pipelineDetails.visit(projectId, mockVersion.pipeline_id, mockVersion.pipeline_version_id);
-        // https://issues.redhat.com/browse/RHOAIENG-4562
-        // Bypass intermittent Cypress error:
-        // Failed to execute 'importScripts' on 'WorkerGlobalScope': The script at 'https://cdn.jsdelivr.net/npm/monaco-editor@0.43.0/min/vs/base/worker/workerMain.js' failed to load.
-        Cypress.on('uncaught:exception', () => false);
-      });
-
       it('Test pipeline details create run navigation', () => {
         pipelineDetails.selectActionDropdownItem('Create run');
         verifyRelativeURL(`/pipelineRuns/${projectId}/pipelineRun/create`);
@@ -210,6 +227,91 @@ describe('Pipeline topology', () => {
         pipelineDetails.selectActionDropdownItem('View schedules');
         verifyRelativeURL(`/pipelineRuns/${projectId}?runType=scheduled`);
       });
+    });
+
+    it('validate clicking on node will open a drawer from right with data.', () => {
+      pipelineDetails.findTaskNode('create-dataset').click();
+      const taskDrawer = pipelineDetails.getTaskDrawer();
+      taskDrawer.shouldHaveTaskName('create-dataset ');
+      taskDrawer.findInputArtifacts().should('not.exist');
+      taskDrawer.findOutputParameters().should('not.exist');
+      taskDrawer.findOutputArtifacts().should('exist');
+      taskDrawer.findCommandCodeBlock().should('not.be.empty');
+      taskDrawer.findArgumentCodeBlock().should('not.be.empty');
+      taskDrawer.findTaskImage().should('have.text', 'Imagequay.io/hukhan/iris-base:1');
+      taskDrawer.findCloseDrawerButton().click();
+      taskDrawer.find().should('not.exist');
+    });
+
+    it('delete pipeline version from action dropdown', () => {
+      pipelineDetails.selectActionDropdownItem('Delete pipeline version');
+      deleteModal.shouldBeOpen();
+      deleteModal.findInput().type(mockVersion.display_name);
+      cy.intercept(
+        {
+          method: 'DELETE',
+          pathname: `/api/service/pipelines/${projectId}/dspa/apis/v2beta1/pipelines/${mockPipeline.pipeline_id}/versions/${mockVersion.pipeline_version_id}`,
+        },
+        mock200Status({}),
+      ).as('deletePipelineVersion');
+
+      deleteModal.findSubmitButton().click();
+      cy.wait('@deletePipelineVersion');
+    });
+
+    it('page details are updated when a new pipeline version is selected', () => {
+      cy.intercept(
+        {
+          method: 'GET',
+          pathname: `/api/service/pipelines/${projectId}/dspa/apis/v2beta1/pipelines/${mockPipeline.pipeline_id}/versions/${mockVersion2.pipeline_version_id}`,
+        },
+        mockVersion2,
+      );
+      pipelineDetails.selectPipelineVersionByName(mockVersion2.display_name);
+      pipelineDetails.findPageTitle().should('have.text', 'test-version-2');
+      verifyRelativeURL(
+        `/pipelines/${projectId}/pipeline/view/${mockPipeline.pipeline_id}/${mockVersion2.pipeline_version_id}`,
+      );
+    });
+
+    it('page details are updated after uploading a new version', () => {
+      cy.intercept(
+        {
+          method: 'GET',
+          pathname: `/api/service/pipelines/${projectId}/dspa/apis/v2beta1/pipelines/${mockPipeline.pipeline_id}/versions/${mockVersion2.pipeline_version_id}`,
+        },
+        mockVersion2,
+      );
+      pipelineDetails.findPageTitle().should('have.text', 'test-version-name');
+      pipelineDetails.selectActionDropdownItem('Upload new version');
+      pipelineVersionImportModal.findImportPipelineRadio().check();
+      pipelineVersionImportModal.findPipelineUrlInput().type('https://example.com/pipeline.yaml');
+      cy.intercept(
+        {
+          method: 'POST',
+          pathname: `/api/service/pipelines/${projectId}/dspa/apis/v2beta1/pipelines/${mockPipeline.pipeline_id}/versions`,
+        },
+        mockVersion2,
+      ).as('uploadNewPipelineVersion');
+
+      pipelineVersionImportModal.submit();
+      verifyRelativeURL(
+        `/pipelines/${projectId}/pipeline/view/${mockPipeline.pipeline_id}/${mockVersion2.pipeline_version_id}`,
+      );
+      cy.wait('@uploadNewPipelineVersion').then((interception) => {
+        expect(interception.request.body).to.containSubset({
+          pipeline_id: 'test-pipeline',
+          description: '',
+          package_url: { pipeline_url: 'https://example.com/pipeline.yaml' },
+        });
+      });
+      pipelineDetails.findPageTitle().should('have.text', 'test-version-2');
+    });
+
+    it('validate for Yaml tab in pipeline details tab', () => {
+      pipelineDetails.findYamlTab().click();
+      const pipelineDashboardCodeEditor = pipelineDetails.getPipelineDashboardCodeEditor();
+      pipelineDashboardCodeEditor.findInput().should('not.be.empty');
     });
   });
 
@@ -231,6 +333,22 @@ describe('Pipeline topology', () => {
         verifyRelativeURL(
           `/pipelineRuns/${projectId}/pipelineRun/cloneJob/${mockJob.recurring_run_id}?runType=scheduled`,
         );
+      });
+
+      it('Test pipeline job delete navigation', () => {
+        pipelineRunJobDetails.visit(projectId, mockJob.recurring_run_id);
+        pipelineRunJobDetails.selectActionDropdownItem('Delete');
+        deleteModal.shouldBeOpen();
+        deleteModal.findInput().type(mockPipeline.display_name);
+
+        cy.interceptOdh(
+          'DELETE /api/service/pipelines/:projectId/dspa/apis/v2beta1/recurringruns/:pipeline_id',
+          { path: { projectId, pipeline_id: mockPipeline.pipeline_id } },
+          mock200Status({}),
+        ).as('deletepipelineRunJob');
+
+        deleteModal.findSubmitButton().click();
+        cy.wait('@deletepipelineRunJob');
       });
 
       it('Test pipeline job bottom drawer project navigation', () => {
@@ -312,6 +430,23 @@ describe('Pipeline topology', () => {
         .findValue()
         .contains('yes');
     });
+    it('Ensure that clicking on a node will open a right-side drawer', () => {
+      initIntercepts();
+
+      pipelineRunJobDetails.visit(projectId, mockJob.recurring_run_id);
+
+      pipelineDetails.findTaskNode('create-dataset').click();
+      const taskDrawer = pipelineDetails.getTaskDrawer();
+      taskDrawer.shouldHaveTaskName('create-dataset ');
+      taskDrawer.findInputArtifacts().should('not.exist');
+      taskDrawer.findOutputParameters().should('not.exist');
+      taskDrawer.findOutputArtifacts().should('exist');
+      taskDrawer.findCommandCodeBlock().should('not.be.empty');
+      taskDrawer.findArgumentCodeBlock().should('not.be.empty');
+      taskDrawer.findTaskImage().should('have.text', 'Imagequay.io/hukhan/iris-base:1');
+      taskDrawer.findCloseDrawerButton().click();
+      taskDrawer.find().should('not.exist');
+    });
 
     it('Test pipeline triggered run bottom drawer details', () => {
       initIntercepts();
@@ -364,6 +499,68 @@ describe('Pipeline topology', () => {
         .findValue()
         .contains('False');
     });
+
+    it('Test pipeline triggered run bottom drawer output', () => {
+      initIntercepts();
+      pipelineRunDetails.visit(projectId, mockRun.run_id);
+
+      pipelineRunDetails.findBottomDrawer().findBottomDrawerYamlTab().click();
+      pipelineRunDetails.findYamlOutput().click();
+      const pipelineDashboardCodeEditor = pipelineDetails.getPipelineDashboardCodeEditor();
+      pipelineDashboardCodeEditor.findInput().should('not.be.empty');
+    });
+  });
+
+  describe('Pipeline run Input/Output', () => {
+    beforeEach(() => {
+      initIntercepts();
+      pipelineRunDetails.visit(projectId, mockRun.run_id);
+    });
+
+    it('Test with input/output artifacts', () => {
+      pipelineRunDetails.findTaskNode('create-dataset').click();
+      const rightDrawer = pipelineRunDetails.findRightDrawer();
+      rightDrawer.findRightDrawerInputOutputTab().should('be.visible');
+      rightDrawer.findRightDrawerInputOutputTab().click();
+      pipelineDetails.findRunTaskRightDrawer();
+      pipelineRunDetails
+        .findOutputArtifacts()
+        .should('contain', 'Output artifacts')
+        .should('contain', 'iris_dataset');
+
+      pipelineRunDetails.findTaskNode('normalize-dataset').click();
+      rightDrawer.findRightDrawerInputOutputTab().should('be.visible');
+      pipelineDetails.findRunTaskRightDrawer();
+      pipelineRunDetails
+        .findInputArtifacts()
+        .should('contain', 'Input artifacts')
+        .should('contain', 'input_iris_dataset');
+    });
+  });
+
+  describe('Pipeline run Details', () => {
+    beforeEach(() => {
+      initIntercepts();
+      pipelineRunDetails.visit(projectId, mockRun.run_id);
+    });
+
+    it('Test with the details', () => {
+      pipelineRunDetails.findTaskNode('create-dataset').click();
+      const rightDrawer = pipelineRunDetails.findRightDrawer();
+      rightDrawer.findRightDrawerDetailsTab().should('be.visible');
+      rightDrawer.findRightDrawerDetailsTab().click();
+      rightDrawer
+        .findRightDrawerDetailItem('Task ID')
+        .findValue()
+        .should('contain', 'task.create-dataset');
+
+      pipelineRunDetails.findTaskNode('normalize-dataset').click();
+      pipelineRunDetails.findRightDrawer().findRightDrawerDetailsTab().should('be.visible');
+      rightDrawer
+        .findRightDrawerDetailItem('Task ID')
+        .findValue()
+        .should('contain', 'task.normalize-dataset');
+    });
   });
 
   describe('Pipeline run volume mounts', () => {
@@ -374,29 +571,26 @@ describe('Pipeline topology', () => {
 
     it('Test node with no volume mounts', () => {
       pipelineRunDetails.findTaskNode('create-dataset').click();
-      pipelineRunDetails.findRightDrawer().findRightDrawerVolumesTab().should('be.visible');
-      pipelineRunDetails.findRightDrawer().findRightDrawerVolumesTab().click();
-      pipelineRunDetails
-        .findRightDrawer()
-        .findRightDrawerVolumesSection()
-        .should('contain.text', 'No content');
+      const rightDrawer = pipelineRunDetails.findRightDrawer();
+      rightDrawer.findRightDrawerVolumesTab().should('be.visible');
+      rightDrawer.findRightDrawerVolumesTab().click();
+      rightDrawer.findRightDrawerVolumesSection().should('contain.text', 'No content');
     });
 
     it('Test node with volume mounts', () => {
       pipelineRunDetails.findTaskNode('normalize-dataset').click();
-      pipelineRunDetails.findRightDrawer().findRightDrawerVolumesTab().should('be.visible');
-      pipelineRunDetails.findRightDrawer().findRightDrawerVolumesTab().click();
-      pipelineRunDetails
-        .findRightDrawer()
+      const rightDrawer = pipelineRunDetails.findRightDrawer();
+      rightDrawer.findRightDrawerVolumesTab().should('be.visible');
+      rightDrawer.findRightDrawerVolumesTab().click();
+      rightDrawer
         .findRightDrawerDetailItem('/data/1')
         .findValue()
         .should('contain', 'create-dataset');
       // Close the side drawer to uncover the 'train-model' node
       pipelineRunDetails.findTaskNode('normalize-dataset').click();
       pipelineRunDetails.findTaskNode('train-model').click();
-      pipelineRunDetails.findRightDrawer().findRightDrawerVolumesTab().click();
-      pipelineRunDetails
-        .findRightDrawer()
+      rightDrawer.findRightDrawerVolumesTab().click();
+      rightDrawer
         .findRightDrawerDetailItem('/data/2')
         .findValue()
         .should('contain', 'normalize-dataset');
@@ -408,9 +602,10 @@ describe('Pipeline topology', () => {
       initIntercepts();
       pipelineRunDetails.visit(projectId, mockRun.run_id);
       pipelineRunDetails.findTaskNode('create-dataset').click();
-      pipelineRunDetails.findRightDrawer().findRightDrawerDetailsTab().should('be.visible');
-      pipelineRunDetails.findRightDrawer().findRightDrawerLogsTab().should('be.visible');
-      pipelineRunDetails.findRightDrawer().findRightDrawerLogsTab().click();
+      const rightDrawer = pipelineRunDetails.findRightDrawer();
+      rightDrawer.findRightDrawerDetailsTab().should('be.visible');
+      rightDrawer.findRightDrawerLogsTab().should('be.visible');
+      rightDrawer.findRightDrawerLogsTab().click();
       pipelineRunDetails.findLogsSuccessAlert().should('be.visible');
     });
 

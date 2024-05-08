@@ -598,6 +598,7 @@ describe('Serving Runtime List', () => {
       initIntercepts({
         disableModelMeshConfig: false,
         disableKServeConfig: false,
+        disableKServeAuthConfig: true,
         servingRuntimes: [],
       });
 
@@ -617,6 +618,44 @@ describe('Serving Runtime List', () => {
       kserveModal.findSubmitButton().should('be.disabled');
       // check external route, token should be checked and no alert
       kserveModal.findAuthenticationCheckbox().should('not.exist');
+    });
+
+    it('Kserve auth should be hidden when no required capabilities', () => {
+      initIntercepts({
+        disableModelMeshConfig: false,
+        disableKServeConfig: false,
+        disableKServeAuthConfig: false,
+        servingRuntimes: [],
+        requiredCapabilities: [],
+      });
+
+      projectDetails.visitSection('test-project', 'model-server');
+
+      modelServingSection.getServingPlatformCard('single-serving').findDeployModelButton().click();
+
+      kserveModal.shouldBeOpen();
+
+      // check external route, token should be checked and no alert
+      kserveModal.findAuthenticationCheckbox().should('not.exist');
+    });
+
+    it('Kserve auth should be enabled if capabilities are prsent', () => {
+      initIntercepts({
+        disableModelMeshConfig: false,
+        disableKServeConfig: false,
+        disableKServeAuthConfig: false,
+        servingRuntimes: [],
+        requiredCapabilities: [StackCapability.SERVICE_MESH, StackCapability.SERVICE_MESH_AUTHZ],
+      });
+
+      projectDetails.visitSection('test-project', 'model-server');
+
+      modelServingSection.getServingPlatformCard('single-serving').findDeployModelButton().click();
+
+      kserveModal.shouldBeOpen();
+
+      // check external route, token should be checked and no alert
+      kserveModal.findAuthenticationCheckbox().should('exist');
     });
 
     it('Do not deploy KServe model when user cannot edit namespace', () => {
@@ -1430,7 +1469,14 @@ describe('Serving Runtime List', () => {
             displayName: 'Llama Caikit',
             url: 'http://llama-caikit.test-project.svc.cluster.local',
             activeModelState: 'Loaded',
-            acceleratorIdentifier: 'nvidia.com/gpu',
+            resources: {
+              requests: {
+                'nvidia.com/gpu': 1,
+              },
+              limits: {
+                'nvidia.com/gpu': 1,
+              },
+            },
           }),
         ],
       });
@@ -1486,7 +1532,14 @@ describe('Serving Runtime List', () => {
             displayName: 'Llama Caikit',
             url: 'http://llama-caikit.test-project.svc.cluster.local',
             activeModelState: 'Loaded',
-            acceleratorIdentifier: 'nvidia.com/gpu',
+            resources: {
+              requests: {
+                'nvidia.com/gpu': '2',
+              },
+              limits: {
+                'nvidia.com/gpu': '2',
+              },
+            },
           }),
         ],
       });
@@ -1658,5 +1711,156 @@ describe('Serving Runtime List', () => {
         expect(interceptions).to.have.length(0);
       });
     });
+  });
+
+  it('Check model size rendered with ServingRuntime size and no InferenceServiceSize', () => {
+    initIntercepts({
+      projectEnableModelMesh: false,
+      disableKServeConfig: true,
+      disableModelMeshConfig: true,
+      inferenceServices: [
+        mockInferenceServiceK8sResource({
+          name: 'llama-service',
+          displayName: 'Llama Service',
+          modelName: 'llama-service',
+          isModelMesh: false,
+          resources: undefined,
+        }),
+      ],
+      servingRuntimes: [
+        mockServingRuntimeK8sResource({
+          name: 'llama-service',
+          displayName: 'Llama Service',
+          namespace: 'test-project',
+          resources: {
+            limits: {
+              cpu: '2',
+              memory: '8Gi',
+            },
+            requests: {
+              cpu: '1',
+              memory: '4Gi',
+            },
+          },
+        }),
+      ],
+    });
+
+    projectDetails.visitSection('test-project', 'model-server');
+    const kserveRow = modelServingSection.getKServeRow('Llama Service');
+    kserveRow.findExpansion().should(be.collapsed);
+    kserveRow.findToggleButton().click();
+    kserveRow
+      .findDescriptionListItem('Model server size')
+      .next('dd')
+      .should('contain.text', 'Small');
+
+    // click on the toggle button and open edit model server
+    kserveRow.find().findKebabAction('Edit').click();
+
+    kserveModal.shouldBeOpen();
+
+    kserveModal.findModelServerSizeSelect().invoke('text').should('equal', 'Small');
+  });
+
+  it('Check model size rendered with InferenceService size', () => {
+    initIntercepts({
+      projectEnableModelMesh: false,
+      disableKServeConfig: true,
+      disableModelMeshConfig: true,
+      inferenceServices: [
+        mockInferenceServiceK8sResource({
+          name: 'llama-service',
+          displayName: 'Llama Service',
+          modelName: 'llama-service',
+          isModelMesh: false,
+          resources: {
+            limits: {
+              cpu: '2',
+              memory: '8Gi',
+            },
+            requests: {
+              cpu: '1',
+              memory: '4Gi',
+            },
+          },
+        }),
+      ],
+      servingRuntimes: [
+        mockServingRuntimeK8sResource({
+          name: 'llama-service',
+          displayName: 'Llama Service',
+          namespace: 'test-project',
+          resources: undefined,
+        }),
+      ],
+    });
+
+    projectDetails.visitSection('test-project', 'model-server');
+    const kserveRow = modelServingSection.getKServeRow('Llama Service');
+    kserveRow.findExpansion().should(be.collapsed);
+    kserveRow.findToggleButton().click();
+    kserveRow
+      .findDescriptionListItem('Model server size')
+      .next('dd')
+      .should('contain.text', 'Small');
+
+    // click on the toggle button and open edit model server
+    kserveRow.find().findKebabAction('Edit').click();
+
+    kserveModal.shouldBeOpen();
+
+    kserveModal.findModelServerSizeSelect().invoke('text').should('equal', 'Small');
+  });
+
+  it('Check model size rendered with InferenceService custom size', () => {
+    initIntercepts({
+      projectEnableModelMesh: false,
+      disableKServeConfig: true,
+      disableModelMeshConfig: true,
+      inferenceServices: [
+        mockInferenceServiceK8sResource({
+          name: 'llama-service',
+          displayName: 'Llama Service',
+          modelName: 'llama-service',
+          isModelMesh: false,
+          resources: {
+            limits: {
+              cpu: '1',
+              memory: '10Gi',
+            },
+            requests: {
+              cpu: '1',
+              memory: '4Gi',
+            },
+          },
+        }),
+      ],
+      servingRuntimes: [
+        mockServingRuntimeK8sResource({
+          name: 'llama-service',
+          displayName: 'Llama Service',
+          namespace: 'test-project',
+          resources: undefined,
+          disableResources: true,
+        }),
+      ],
+    });
+
+    projectDetails.visitSection('test-project', 'model-server');
+    const kserveRow = modelServingSection.getKServeRow('Llama Service');
+    kserveRow.findExpansion().should(be.collapsed);
+    kserveRow.findToggleButton().click();
+    kserveRow
+      .findDescriptionListItem('Model server size')
+      .next('dd')
+      .should('contain.text', 'Custom');
+
+    // click on the toggle button and open edit model server
+    modelServingSection.getKServeRow('Llama Service').find().findKebabAction('Edit').click();
+
+    kserveModal.shouldBeOpen();
+
+    kserveModal.findModelServerSizeSelect().invoke('text').should('equal', 'Custom');
   });
 });

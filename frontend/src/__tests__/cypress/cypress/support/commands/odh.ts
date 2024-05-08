@@ -1,4 +1,4 @@
-import { K8sResourceListResult } from '@openshift/dynamic-plugin-sdk-utils';
+import { K8sResourceListResult, K8sStatus } from '@openshift/dynamic-plugin-sdk-utils';
 import type { GenericStaticResponse, RouteHandlerController } from 'cypress/types/net-stubbing';
 import { BaseMetricCreationResponse, BaseMetricListResponse } from '~/api';
 import { ModelVersionList, RegisteredModelList } from '~/concepts/modelRegistry/types';
@@ -7,9 +7,15 @@ import type {
   DataScienceClusterInitializationKindStatus,
   DataScienceClusterKindStatus,
   OdhQuickStart,
+  RoleBindingKind,
   ServingRuntimeKind,
   TemplateKind,
+  NotebookKind,
 } from '~/k8sTypes';
+
+import { StartNotebookData } from '~/pages/projects/types';
+import { AllowedUser } from '~/pages/notebookController/screens/admin/types';
+import { GroupsConfig } from '~/pages/groupSettings/groupTypes';
 import type { StatusResponse } from '~/redux/types';
 import type {
   BYONImage,
@@ -54,7 +60,17 @@ declare global {
       interceptOdh(
         type: 'PUT /api/accelerator-profiles/:name',
         options: { path: { name: string } },
-        response?: OdhResponse,
+        response: OdhResponse,
+      ): Cypress.Chainable<null>;
+
+      interceptOdh(
+        type: 'GET /api/groups-config',
+        response: OdhResponse<GroupsConfig>,
+      ): Cypress.Chainable<null>;
+
+      interceptOdh(
+        type: 'PUT /api/groups-config',
+        response: OdhResponse<GroupsConfig>,
       ): Cypress.Chainable<null>;
 
       interceptOdh(
@@ -85,6 +101,21 @@ declare global {
       interceptOdh(
         type: 'GET /api/status',
         response: OdhResponse<StatusResponse>,
+      ): Cypress.Chainable<null>;
+
+      interceptOdh(
+        type: 'GET /api/status/openshift-ai-notebooks/allowedUsers',
+        response: OdhResponse<AllowedUser[]>,
+      ): Cypress.Chainable<null>;
+
+      interceptOdh(
+        type: 'GET /api/status/openshift-ai-notebooks/allowedUsers',
+        response: OdhResponse<AllowedUser>,
+      ): Cypress.Chainable<null>;
+
+      interceptOdh(
+        type: 'GET /api/rolebindings/opendatahub/openshift-ai-notebooks-image-pullers',
+        response: OdhResponse<K8sResourceListResult<RoleBindingKind>>,
       ): Cypress.Chainable<null>;
 
       interceptOdh(
@@ -165,7 +196,8 @@ declare global {
 
       interceptOdh(
         type: 'GET /api/images/:type',
-        response: OdhResponse<ImageInfo>,
+        options: { path: { type: string } },
+        response: OdhResponse<ImageInfo[]>,
       ): Cypress.Chainable<null>;
 
       interceptOdh(
@@ -185,6 +217,23 @@ declare global {
         response: OdhResponse<SuccessErrorResponse>,
       ): Cypress.Chainable<null>;
 
+      interceptOdh(
+        type: 'POST /api/notebooks',
+        response: OdhResponse<StartNotebookData>,
+      ): Cypress.Chainable<null>;
+
+      interceptOdh(
+        type: 'PATCH /api/notebooks',
+        response: OdhResponse<StartNotebookData>,
+      ): Cypress.Chainable<null>;
+
+      interceptOdh(
+        type: 'GET /api/notebooks/openshift-ai-notebooks/:username/status',
+        options: {
+          path: { username: string };
+        },
+        response: OdhResponse<NotebookKind>,
+      ): Cypress.Chainable<null>;
       interceptOdh(
         type: 'POST /api/prometheus/pvc',
         response: OdhResponse<{ code: number; response: PrometheusQueryResponse }>,
@@ -267,8 +316,27 @@ declare global {
       ): Cypress.Chainable<null>;
 
       interceptOdh(
+        type: 'DELETE /api/service/pipelines/:projectId/dspa/apis/v2beta1/recurringruns/:pipeline_id',
+        options: { path: { projectId: string; pipeline_id: string } },
+        response: OdhResponse<K8sStatus>,
+      ): Cypress.Chainable<null>;
+
+      interceptOdh(
         type: 'GET /api/service/modelregistry/modelregistry-sample/api/model_registry/v1alpha3/registered_models/1/versions',
         response: OdhResponse<ModelVersionList | undefined>,
+      ): Cypress.Chainable<null>;
+
+      interceptOdh(
+        type: 'GET /api/rolebindings/opendatahub/openshift-ai-notebooks-image-pullers',
+        response: OdhResponse<K8sResourceListResult<RoleBindingKind>>,
+      ): Cypress.Chainable<null>;
+
+      interceptOdh(
+        type: 'GET /api/notebooks/openshift-ai-notebooks/:username/status',
+        options: {
+          path: { username: string };
+        },
+        response: OdhResponse<{ notebook: NotebookKind; isRunning: boolean }>,
       ): Cypress.Chainable<null>;
     }
   }

@@ -181,6 +181,7 @@ export enum OdhDocumentType {
 }
 
 export type OdhDocument = {
+  kind?: string;
   metadata: {
     name: string;
     annotations?: { [key: string]: string };
@@ -329,14 +330,6 @@ export type PodContainer = {
   terminationMessagePolicy?: string;
   securityContext?: unknown;
 };
-
-export type PodStepState = { stepName: string; state: PodStepStateType };
-
-export enum PodStepStateType {
-  success = 'Success',
-  error = 'Error',
-  loading = 'Loading',
-}
 
 export type PodContainerStatus = {
   name?: string;

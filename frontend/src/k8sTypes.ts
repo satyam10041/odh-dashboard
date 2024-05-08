@@ -15,7 +15,7 @@ import {
   VolumeMount,
   ContainerResourceAttributes,
 } from './types';
-import { ServingRuntimeSize } from './pages/modelServing/screens/types';
+import { ModelServingSize } from './pages/modelServing/screens/types';
 
 export enum KnownLabels {
   DASHBOARD_RESOURCE = 'opendatahub.io/dashboard',
@@ -919,6 +919,11 @@ export type WorkloadPodSet = {
   };
 };
 
+export enum WorkloadOwnerType {
+  RayCluster = 'RayCluster',
+  Job = 'Job',
+}
+
 // https://kueue.sigs.k8s.io/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-Workload
 export type WorkloadKind = K8sResourceCommon & {
   apiVersion: 'kueue.x-k8s.io/v1beta1';
@@ -1229,7 +1234,7 @@ export type DashboardConfigKind = K8sResourceCommon & {
       allowedGroups: string;
     };
     notebookSizes?: NotebookSize[];
-    modelServerSizes?: ServingRuntimeSize[];
+    modelServerSizes?: ModelServingSize[];
     notebookController?: {
       enabled: boolean;
       pvcSize?: string;

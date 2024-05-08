@@ -5,7 +5,6 @@ import { mockK8sResourceList } from '~/__mocks__/mockK8sResourceList';
 import { mock200Status } from '~/__mocks__/mockK8sStatus';
 import { mockProjectK8sResource } from '~/__mocks__/mockProjectK8sResource';
 import { mockSecretK8sResource } from '~/__mocks__/mockSecretK8sResource';
-import { mockSelfSubjectAccessReview } from '~/__mocks__/mockSelfSubjectAccessReview';
 import { mockServingRuntimeK8sResource } from '~/__mocks__/mockServingRuntimeK8sResource';
 import {
   mockInvalidTemplateK8sResource,
@@ -20,13 +19,14 @@ import {
   InferenceServiceModel,
   ProjectModel,
   SecretModel,
-  SelfSubjectAccessReviewModel,
   ServingRuntimeModel,
   TemplateModel,
 } from '~/__tests__/cypress/cypress/utils/models';
 import { InferenceServiceKind, ServingRuntimeKind } from '~/k8sTypes';
 import { ServingRuntimePlatform } from '~/types';
 import { be } from '~/__tests__/cypress/cypress/utils/should';
+import { asClusterAdminUser } from '~/__tests__/cypress/cypress/utils/users';
+import { testPagination } from '~/__tests__/cypress/cypress/utils/pagination';
 
 type HandlersProps = {
   disableKServeConfig?: boolean;
@@ -60,11 +60,6 @@ const initIntercepts = ({
       disableModelMesh: disableModelMeshConfig,
     }),
   );
-  cy.interceptK8s(
-    'POST',
-    SelfSubjectAccessReviewModel,
-    mockSelfSubjectAccessReview({ allowed: true }),
-  ).as('selfSubjectAccessReviewsCall');
   cy.interceptK8sList(ServingRuntimeModel, mockK8sResourceList(servingRuntimes));
   cy.interceptK8sList(InferenceServiceModel, mockK8sResourceList(inferenceServices));
   cy.interceptK8sList(SecretModel, mockK8sResourceList([mockSecretK8sResource({})]));
@@ -170,6 +165,7 @@ describe('Model Serving Global', () => {
   });
 
   it('All projects loading and cancel', () => {
+    asClusterAdminUser();
     initIntercepts({
       delayInferenceServices: true,
       delayServingRuntimes: true,
@@ -311,11 +307,17 @@ describe('Model Serving Global', () => {
 
     cy.wait('@editModel').then((interception) => {
       const servingRuntimeMock = mockServingRuntimeK8sResource({ displayName: 'test-model' });
+      const servingRuntimeMockNoResources = mockServingRuntimeK8sResource({
+        displayName: 'test-model',
+        disableResources: true,
+        disableReplicas: true,
+        disableModelMeshAnnotations: true,
+      }); // KServe should send resources in ServingRuntime after migration
       delete servingRuntimeMock.metadata.annotations?.['enable-auth'];
       delete servingRuntimeMock.metadata.annotations?.['enable-route'];
       delete servingRuntimeMock.spec.replicas;
       expect(interception.request.url).to.include('?dryRun=All'); //dry run request
-      expect(interception.request.body).to.eql(servingRuntimeMock);
+      expect(interception.request.body).to.eql(servingRuntimeMockNoResources);
     });
   });
 
@@ -467,23 +469,6 @@ describe('Model Serving Global', () => {
       });
     });
 
-    cy.wait('@selfSubjectAccessReviewsCall').then((interception) => {
-      expect(interception.request.body).to.eql({
-        apiVersion: 'authorization.k8s.io/v1',
-        kind: 'SelfSubjectAccessReview',
-        spec: {
-          resourceAttributes: {
-            group: 'serving.kserve.io',
-            resource: 'servingruntimes',
-            subresource: '',
-            verb: 'list',
-            name: '',
-            namespace: '',
-          },
-        },
-      });
-    });
-
     cy.findByText('Error creating model server');
 
     // Close the modal
@@ -494,7 +479,7 @@ describe('Model Serving Global', () => {
     cy.findByText('Error creating model server').should('not.exist');
   });
 
-  describe('Table filter', () => {
+  describe('Table filter and pagination', () => {
     it('filter by name', () => {
       initIntercepts({});
       modelServingGlobal.visit('test-project');
@@ -547,6 +532,33 @@ describe('Model Serving Global', () => {
 
       // Verify no results were found
       modelServingGlobal.findEmptyResults().should('exist');
+    });
+
+    it('Validate pagination', () => {
+      const totalItems = 50;
+      const mockInferenceService: InferenceServiceKind[] = Array.from(
+        { length: totalItems },
+        (_, i) =>
+          mockInferenceServiceK8sResource({
+            displayName: `Test Inference Service-${i}`,
+          }),
+      );
+      initIntercepts({ inferenceServices: mockInferenceService });
+      modelServingGlobal.visit('test-project');
+
+      // top pagination
+      testPagination({
+        totalItems,
+        firstElement: 'Test Inference Service-0',
+        paginationVariant: 'top',
+      });
+
+      // bottom pagination
+      testPagination({
+        totalItems,
+        firstElement: 'Test Inference Service-0',
+        paginationVariant: 'bottom',
+      });
     });
   });
 });

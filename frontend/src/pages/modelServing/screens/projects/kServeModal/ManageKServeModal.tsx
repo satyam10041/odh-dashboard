@@ -40,7 +40,8 @@ import { isAWSValid } from '~/pages/projects/screens/spawner/spawnerUtils';
 import InferenceServiceNameSection from '~/pages/modelServing/screens/projects/InferenceServiceModal/InferenceServiceNameSection';
 import InferenceServiceFrameworkSection from '~/pages/modelServing/screens/projects/InferenceServiceModal/InferenceServiceFrameworkSection';
 import DataConnectionSection from '~/pages/modelServing/screens/projects/InferenceServiceModal/DataConnectionSection';
-import { getProjectDisplayName, translateDisplayNameForK8s } from '~/pages/projects/utils';
+import { getProjectDisplayName } from '~/concepts/projects/utils';
+import { translateDisplayNameForK8s } from '~/concepts/k8s/utils';
 import { containsOnlySlashes, isS3PathValid } from '~/utilities/string';
 import AuthServingRuntimeSection from '~/pages/modelServing/screens/projects/ServingRuntimeModal/AuthServingRuntimeSection';
 import { useAccessReview } from '~/api';
@@ -117,12 +118,7 @@ const ManageKServeModal: React.FC<ManageKServeModalProps> = ({
   }, [currentProjectName, setCreateDataInferenceService, isOpen]);
 
   // Serving Runtime Validation
-  const baseInputValueValid =
-    createDataServingRuntime.numReplicas >= 0 &&
-    resourcesArePositive(createDataServingRuntime.modelSize.resources) &&
-    requestsUnderLimits(createDataServingRuntime.modelSize.resources);
-
-  const isDisabledServingRuntime = namespace === '' || actionInProgress || !baseInputValueValid;
+  const isDisabledServingRuntime = namespace === '' || actionInProgress;
 
   // Inference Service Validation
   const storageCanCreate = (): boolean => {
@@ -131,6 +127,11 @@ const ManageKServeModal: React.FC<ManageKServeModalProps> = ({
     }
     return isAWSValid(createDataInferenceService.storage.awsData, [AwsKeys.AWS_S3_BUCKET]);
   };
+
+  const baseInputValueValid =
+    createDataInferenceService.maxReplicas >= 0 &&
+    resourcesArePositive(createDataInferenceService.modelSize.resources) &&
+    requestsUnderLimits(createDataInferenceService.modelSize.resources);
 
   const isDisabledInferenceService =
     actionInProgress ||
@@ -141,7 +142,8 @@ const ManageKServeModal: React.FC<ManageKServeModalProps> = ({
     !isS3PathValid(createDataInferenceService.storage.path) ||
     createDataInferenceService.storage.path === '' ||
     !isInferenceServiceNameWithinLimit ||
-    !storageCanCreate();
+    !storageCanCreate() ||
+    !baseInputValueValid;
 
   const servingRuntimeSelected = React.useMemo(
     () =>
@@ -313,8 +315,8 @@ const ManageKServeModal: React.FC<ManageKServeModalProps> = ({
           </StackItem>
           <StackItem>
             <ServingRuntimeSizeSection
-              data={createDataServingRuntime}
-              setData={setCreateDataServingRuntime}
+              data={createDataInferenceService}
+              setData={setCreateDataInferenceService}
               sizes={sizes}
               servingRuntimeSelected={servingRuntimeSelected}
               acceleratorProfileState={acceleratorProfileState}
