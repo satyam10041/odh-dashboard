@@ -22,8 +22,9 @@ resources:
   - fetch-accelerators.rbac.yaml
 images:
   - name: odh-dashboard
-    newName: quay.io/opendatahub/odh-dashboard
-    digest: sha256:74ec3955d59a699ed2a2136f1159a3e006930190cfe7160779da1f038a57e684
+    newName: quay.io/satyam16/odh-dashboard
+    newTag: v2.22.2-odh-release
+    digest: sha256:7e5007bc19f31d9fc291e71364ba623e5944ee2fe0260f463e41db5f9e75b5be
   - name: oauth-proxy
     newName: registry.redhat.io/openshift4/ose-oauth-proxy
     digest: sha256:ab112105ac37352a2a4916a39d6736f5db6ab4c29bad4467de8d613e80e9bb33
